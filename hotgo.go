@@ -1,193 +1,151 @@
 package hotgo
 
 import (
-	"crypto/sha256"
-	"debug/elf"
-	"encoding/hex"
 	"fmt"
-	"io"
-	"os"
+	"net/http"
+	"net/rpc"
 	"plugin"
-	"reflect"
-	"sort"
-	"syscall"
-	"unsafe"
 )
 
-type ReplaceConfig struct {
-	OldSym string
-	NewSym string
-}
-
-type RefConfig struct {
-	RefSym   string
-	PatchSym string
-}
-
+// Hot Patch Configuration
+//
+// HPFile: the path of the hot patch file
+//
+// ReplaceConfig: Replace the function mapping table with keys for function names in the hot patch file and values for symbol names in the running application
+//
+// RefConfig: Reference mapping tables. In the hot patch file, symbols (global variables or functions) in the running program are referenced. The keys are the names of functions and variables in the hot patch, and the values are symbols in the running program
 type Config struct {
-	ReplaceConfigs []ReplaceConfig
-	RefConfigs     []RefConfig
+	HPFile        string            `json:"hp_file"`
+	ReplaceConfig map[string]string `json:"replace_config"`
+	RefConfig     map[string]string `json:"ref_config"`
 }
 
-type replaceData struct {
-	addr    uintptr
-	oldCode []byte
+// Request object for loading hot patches, used for http or rpc interface requests
+type LoadRequest Config
+
+// Request object for unloading hot patches, for http or rpc interface requests
+type UnloadHPRequest struct {
+	HPID string `json:"hp_id"`
 }
 
-type patchInfo struct {
-	filename string
-	config   Config
-	plugin_  *plugin.Plugin
+// Hot patch load / unload response object
+type HPResponse struct {
+	HPID  string `json:"hp_id"`
+	Error string `json:"error"`
 }
 
-type patchData struct {
-	patchInfo   patchInfo
-	replaceData []replaceData
-	refData     []*uint64
-}
-
-var globalPatchData = map[string]patchData{}
-
-func findSym(syms []elf.Symbol, name string) (elf.Symbol, bool) {
-	left, right := 0, len(syms)
-	for left < right {
-		mid := (left + right) / 2
-		if syms[mid].Name == name {
-			return syms[mid], true
-		}
-		if syms[mid].Name < name {
-			left = mid + 1
-		} else {
-			right = mid
-		}
-	}
-	return elf.Symbol{}, false
-}
-
-func fillRef(esym elf.Symbol, psym plugin.Symbol) *uint64 {
-	v := esym.Value
-	newAddr := (*uint64)(unsafe.Pointer(uintptr(((*fakeInterface)(unsafe.Pointer(&psym))).value)))
-	println(esym.Info)
-	if esym.Info == 17 {
-		*newAddr = v
-	} else if esym.Info == 18 {
-		*newAddr = uint64(uintptr(unsafe.Pointer(&v)))
-	} else {
-		panic("unknown ref type")
-	}
-	return &v
-}
-
-type fakeInterface struct {
-	type_ unsafe.Pointer
-	value unsafe.Pointer
-}
-
-func mprotect(addr uintptr, len uintptr, prop int) {
-	pageSize := syscall.Getpagesize()
-	pageStart := addr & ^(uintptr(pageSize - 1))
-	for p := pageStart; p < addr+len; p += uintptr(pageSize) {
-		page := memoryAccess(p, pageSize)
-		err := syscall.Mprotect(page, prop)
-		if err != nil {
-			panic(err)
-		}
-	}
-}
-
-func memoryAccess(addr uintptr, len int) []byte {
-	return *(*[]byte)(unsafe.Pointer(&reflect.SliceHeader{
-		Data: addr,
-		Len:  len,
-		Cap:  len,
-	}))
-}
-
-func replaceSym(esym elf.Symbol, psym plugin.Symbol) replaceData {
-	addr := esym.Value
-	newAddr := uint64(uintptr(((*fakeInterface)(unsafe.Pointer(&psym))).value))
-	code := makeMachineCode(newAddr)
-	oldMem := memoryAccess(uintptr(addr), len(code))
-	oldCode := make([]byte, len(code))
-	copy(oldCode, oldMem)
-	mprotect(uintptr(addr), uintptr(len(code)), syscall.PROT_READ|syscall.PROT_WRITE|syscall.PROT_EXEC)
-	copy(oldMem, code[:])
-	mprotect(uintptr(addr), uintptr(len(code)), syscall.PROT_READ|syscall.PROT_EXEC)
-	return replaceData{
-		addr:    uintptr(addr),
-		oldCode: oldCode,
-	}
-}
-
-func getHpID(patchFile string) (string, error) {
-	file, err := os.Open(patchFile)
-	if err != nil {
-		return "", err
-	}
-	defer file.Close()
-	hash := sha256.New()
-	if _, err := io.Copy(hash, file); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(hash.Sum(nil)), nil
-}
-
-func Patch(patchFile string, config Config) (string, error) {
-	elfFile, err := elf.Open(os.Args[0])
-	if err != nil {
-		return "", err
-	}
+// Uninstall hot patch. Parameter is hot patch ID.
+func UnloadHP(hpID string) (errret error) {
 	defer func() {
-		elfFile.Close()
+		if err := recover(); err != nil {
+			errret = fmt.Errorf("%v", err)
+		}
 	}()
-	syms, err := elfFile.Symbols()
+
+	if _, ok := globalHPData[hpID]; !ok {
+		return fmt.Errorf("patch %s not loaded", hpID)
+	}
+
+	patchData := globalHPData[hpID]
+
+	// run BeforeUnload
+	err := runHookFunc(patchData.patchInfo.plugin_, beforeUnloadFuncName)
+	if err != nil {
+		return err
+	}
+
+	// recover replaceData
+	for _, replaceData := range patchData.replaceData {
+		writeMemory(replaceData.addr, replaceData.oldCode)
+	}
+
+	// run AfterUnload
+	err = runHookFunc(patchData.patchInfo.plugin_, afterUnloadFuncName)
+	if err != nil {
+		return err
+	}
+
+	// delete record
+	delete(globalHPData, hpID)
+
+	return nil
+}
+
+// Load hot patch. Parameter is hot patch configuration. If loaded successfully, hot patch ID will be returned, which is used to unload or query hot patch information.
+func LoadHP(config Config) (hpID string, errret error) {
+
+	defer func() {
+		if err := recover(); err != nil {
+			errret = fmt.Errorf("%v", err)
+		}
+	}()
+
+	hpID, err := getHPID(config.HPFile)
 	if err != nil {
 		return "", err
 	}
-	sort.Slice(syms, func(i, j int) bool {
-		return syms[i].Name < syms[j].Name
-	})
-	plugin_, err := plugin.Open(patchFile)
+
+	// if already loaded
+	if _, ok := globalHPData[hpID]; ok {
+		return hpID, fmt.Errorf("patch %s already loaded", hpID)
+	}
+
+	syms, err := getElfSyms()
 	if err != nil {
 		return "", err
 	}
-	hpID, err := getHpID(patchFile)
-	tmpPatchInfo := patchInfo{
-		filename: patchFile,
-		config:   config,
-		plugin_:  plugin_,
-	}
-	replaceData := []replaceData{}
+
+	plugin_, err := plugin.Open(config.HPFile)
 	if err != nil {
 		return "", err
 	}
-	tmpRefData := []*uint64{}
-	for _, ref := range config.RefConfigs {
-		esym, ok := findSym(syms, ref.RefSym)
-		if !ok {
-			return "", fmt.Errorf("symbol %s not found", ref.RefSym)
-		}
-		psym, err := plugin_.Lookup(ref.PatchSym)
-		if err != nil {
-			return "", err
-		}
-		tmpRefData = append(tmpRefData, fillRef(esym, psym))
+
+	// run BeforeLoad
+	err = runHookFunc(plugin_, beforeLoadFuncName)
+	if err != nil {
+		return "", err
 	}
-	for _, rep := range config.ReplaceConfigs {
-		esym, ok := findSym(syms, rep.OldSym)
-		if !ok {
-			return "", fmt.Errorf("symbol %s not found", rep.OldSym)
-		}
-		psym, err := plugin_.Lookup(rep.NewSym)
-		if err != nil {
-			return "", err
-		}
-		replaceData = append(replaceData, replaceSym(esym, psym))
+
+	tmpRefData, err := resolveRefConfig(config, syms, plugin_)
+	if err != nil {
+		return "", err
 	}
-	globalPatchData[hpID] = patchData{
-		patchInfo:   tmpPatchInfo,
+
+	replaceData, err := resolveReplaceConfig(config, syms, plugin_)
+	if err != nil {
+		return "", err
+	}
+
+	globalHPData[hpID] = patchData{
+		patchInfo: patchInfo{
+			config:  config,
+			plugin_: plugin_,
+		},
 		replaceData: replaceData,
 		refData:     tmpRefData,
 	}
-	return "", nil
+
+	// run AfterLoad
+	err = runHookFunc(plugin_, afterLoadFuncName)
+	if err != nil {
+		UnloadHP(hpID)
+		return "", err
+	}
+
+	return hpID, nil
+}
+
+// Create a hot patch http server
+func HPHttpServer() http.Handler {
+	server := http.NewServeMux()
+	server.HandleFunc("/hp/v1/load", loadHPHttpHandleFunc)
+	server.HandleFunc("/hp/v1/unload", unloadHPHttpHandleFunc)
+	return server
+}
+
+// Create a hot patch rpc server
+func HPRpcServer() *rpc.Server {
+	server := rpc.NewServer()
+	server.Register(&HPRpcService{})
+	return server
 }

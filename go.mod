@@ -1,3 +1,6 @@
-module github.com/skyfireitdiy/hotgo
+module hotgo
 
 go 1.17
+
+require (
+)
