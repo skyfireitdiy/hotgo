@@ -43,6 +43,7 @@ type patchInfo struct {
 type patchData struct {
 	patchInfo   patchInfo
 	replaceData []replaceData
+	refData     []*uint64
 }
 
 var globalPatchData = map[string]patchData{}
@@ -63,8 +64,18 @@ func findSym(syms []elf.Symbol, name string) (elf.Symbol, bool) {
 	return elf.Symbol{}, false
 }
 
-func fillRef(esym elf.Symbol, psym plugin.Symbol) {
-
+func fillRef(esym elf.Symbol, psym plugin.Symbol) *uint64 {
+	v := esym.Value
+	newAddr := (*uint64)(unsafe.Pointer(uintptr(((*fakeInterface)(unsafe.Pointer(&psym))).value)))
+	println(esym.Info)
+	if esym.Info == 17 {
+		*newAddr = v
+	} else if esym.Info == 18 {
+		*newAddr = uint64(uintptr(unsafe.Pointer(&v)))
+	} else {
+		panic("unknown ref type")
+	}
+	return &v
 }
 
 type fakeInterface struct {
@@ -150,6 +161,7 @@ func Patch(patchFile string, config Config) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	tmpRefData := []*uint64{}
 	for _, ref := range config.RefConfigs {
 		esym, ok := findSym(syms, ref.RefSym)
 		if !ok {
@@ -159,7 +171,7 @@ func Patch(patchFile string, config Config) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		fillRef(esym, psym)
+		tmpRefData = append(tmpRefData, fillRef(esym, psym))
 	}
 	for _, rep := range config.ReplaceConfigs {
 		esym, ok := findSym(syms, rep.OldSym)
@@ -175,6 +187,7 @@ func Patch(patchFile string, config Config) (string, error) {
 	globalPatchData[hpID] = patchData{
 		patchInfo:   tmpPatchInfo,
 		replaceData: replaceData,
+		refData:     tmpRefData,
 	}
 	return "", nil
 }

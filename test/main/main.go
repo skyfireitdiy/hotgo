@@ -7,12 +7,19 @@ import (
 	"github.com/skyfireitdiy/hotgo/hotgo"
 )
 
+var global int = 100
+
 func oldFunc() {
-	fmt.Println("old func")
+	fmt.Printf("old func: %d\n", global)
+}
+
+func hiddenFunc() {
+	fmt.Printf("hidden func: %d\n", global)
 }
 
 func main() {
 	ticker := time.NewTicker(time.Second)
+	hiddenFunc()
 	go func() {
 		for range ticker.C {
 			oldFunc()
@@ -33,7 +40,16 @@ func main() {
 						NewSym: "NewFunc",
 					},
 				},
-				RefConfigs: []hotgo.RefConfig{},
+				RefConfigs: []hotgo.RefConfig{
+					{
+						RefSym:   "main.global",
+						PatchSym: "Data",
+					},
+					{
+						RefSym:   "main.hiddenFunc",
+						PatchSym: "NewHiddenFunc",
+					},
+				},
 			})
 			if err != nil {
 				fmt.Println(err)
