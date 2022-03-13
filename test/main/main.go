@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/skyfireitdiy/hotgo/hotgo"
+	"github.com/skyfireitdiy/hotgo"
 )
 
 var global int = 100
