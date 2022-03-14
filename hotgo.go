@@ -39,13 +39,16 @@ type UnloadResponse struct {
 	Error string `json:"error"`
 }
 
+// Hot Patch Information
 type HPInfo struct {
 	HPID   string `json:"hp_id"`
 	Config Config `json:"config"`
 }
 
+// Parameter type of hot patch information
 type InfoRequest struct{}
 
+// Return type of hot patch information
 type InfoResponse struct {
 	Info []HPInfo `json:"info"`
 }
