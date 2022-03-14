@@ -24,14 +24,30 @@ type Config struct {
 type LoadRequest Config
 
 // Request object for unloading hot patches, for http or rpc interface requests
-type UnloadHPRequest struct {
+type UnloadRequest struct {
 	HPID string `json:"hp_id"`
 }
 
-// Hot patch load / unload response object
-type HPResponse struct {
+// Hot patch load response object
+type LoadResponse struct {
 	HPID  string `json:"hp_id"`
 	Error string `json:"error"`
+}
+
+// Hot patch unload response object
+type UnloadResponse struct {
+	Error string `json:"error"`
+}
+
+type HPInfo struct {
+	HPID   string `json:"hp_id"`
+	Config Config `json:"config"`
+}
+
+type InfoRequest struct{}
+
+type InfoResponse struct {
+	Info []HPInfo `json:"info"`
 }
 
 // Uninstall hot patch. Parameter is hot patch ID.
@@ -69,6 +85,18 @@ func UnloadHP(hpID string) (errret error) {
 	delete(globalHPData, hpID)
 
 	return nil
+}
+
+// Get the current hot patch loading information
+func GetHPInfo() []HPInfo {
+	var info []HPInfo
+	for hpID, hpData := range globalHPData {
+		info = append(info, HPInfo{
+			HPID:   hpID,
+			Config: hpData.patchInfo.config,
+		})
+	}
+	return info
 }
 
 // Load hot patch. Parameter is hot patch configuration. If loaded successfully, hot patch ID will be returned, which is used to unload or query hot patch information.
@@ -140,6 +168,7 @@ func HPHttpServer() http.Handler {
 	server := http.NewServeMux()
 	server.HandleFunc("/hp/v1/load", loadHPHttpHandleFunc)
 	server.HandleFunc("/hp/v1/unload", unloadHPHttpHandleFunc)
+	server.HandleFunc("/hp/v1/info", infoHttpHandleFunc)
 	return server
 }
 
