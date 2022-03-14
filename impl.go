@@ -206,7 +206,7 @@ func loadHPHttpHandleFunc(res http.ResponseWriter, req *http.Request) {
 	if err := json.NewDecoder(req.Body).Decode(&config); err != nil {
 		res.WriteHeader(http.StatusBadRequest)
 		// write response body as JSON to http response
-		json.NewEncoder(res).Encode(HPResponse{Error: err.Error()})
+		json.NewEncoder(res).Encode(LoadResponse{Error: err.Error()})
 		return
 	}
 
@@ -214,23 +214,23 @@ func loadHPHttpHandleFunc(res http.ResponseWriter, req *http.Request) {
 	if hpID, err := LoadHP(Config(config)); err != nil {
 		res.WriteHeader(http.StatusInternalServerError)
 		// write response body as JSON to http response
-		json.NewEncoder(res).Encode(HPResponse{Error: err.Error()})
+		json.NewEncoder(res).Encode(LoadResponse{Error: err.Error()})
 		return
 	} else {
 		res.WriteHeader(http.StatusOK)
 		// write response body as JSON to http response
-		json.NewEncoder(res).Encode(HPResponse{HPID: hpID})
+		json.NewEncoder(res).Encode(LoadResponse{HPID: hpID})
 	}
 }
 
 func unloadHPHttpHandleFunc(res http.ResponseWriter, req *http.Request) {
 	// Get UnloadHPRequest from request as JSON
-	var request UnloadHPRequest
+	var request UnloadRequest
 
 	if err := json.NewDecoder(req.Body).Decode(&request); err != nil {
 		res.WriteHeader(http.StatusBadRequest)
 		// write response body as JSON to http response
-		json.NewEncoder(res).Encode(HPResponse{Error: err.Error()})
+		json.NewEncoder(res).Encode(LoadResponse{Error: err.Error()})
 		return
 	}
 
@@ -238,16 +238,23 @@ func unloadHPHttpHandleFunc(res http.ResponseWriter, req *http.Request) {
 	if err := UnloadHP(request.HPID); err != nil {
 		res.WriteHeader(http.StatusInternalServerError)
 		// write response body as JSON to http response
-		json.NewEncoder(res).Encode(HPResponse{Error: err.Error()})
+		json.NewEncoder(res).Encode(LoadResponse{Error: err.Error()})
 		return
 	} else {
 		res.WriteHeader(http.StatusOK)
 		// write response body as JSON to http response
-		json.NewEncoder(res).Encode(HPResponse{})
+		json.NewEncoder(res).Encode(LoadResponse{})
 	}
 }
 
-func (s *HPRpcService) LoadHP(params Config, result *HPResponse) error {
+func infoHttpHandleFunc(res http.ResponseWriter, req *http.Request) {
+	info := GetHPInfo()
+	res.WriteHeader(http.StatusOK)
+	// write response body as JSON to http response
+	json.NewEncoder(res).Encode(info)
+}
+
+func (s *HPRpcService) LoadHP(params Config, result *LoadResponse) error {
 	// Load patch
 	if hpID, err := LoadHP(params); err != nil {
 		return err
@@ -257,11 +264,16 @@ func (s *HPRpcService) LoadHP(params Config, result *HPResponse) error {
 	return nil
 }
 
-func (s *HPRpcService) UnloadHP(params UnloadHPRequest, result *HPResponse) error {
+func (s *HPRpcService) UnloadHP(params UnloadRequest, result *UnloadResponse) error {
 	// Unload patch
 	if err := UnloadHP(params.HPID); err != nil {
 		result.Error = err.Error()
 	}
+	return nil
+}
+
+func (s *HPRpcService) Info(_ InfoRequest, result *InfoResponse) error {
+	result.Info = GetHPInfo()
 	return nil
 }
 

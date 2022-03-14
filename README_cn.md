@@ -67,8 +67,11 @@ curl -d '{
 
   创建一个RpcServer，用于使用http协议访问热补丁加载与卸载接口。此接口与 HPHttpServer 相同，仅返回一个Server，需要自行监听提供服务。
 
+- func GetHPInfo() []HPInfo
 
-2. hotgo 提供以下公开的结构体
+  获取当前已经加载的热补丁信息。
+
+1. hotgo 提供以下公开的结构体
 
 ```go
 type Config struct {
@@ -91,23 +94,54 @@ type LoadRequest Config
 LoadRequest 是 Config 结构的一个别名，用于http或者rpc接口的参数使用。
 
 ```go
-type UnloadHPRequest struct {
+type UnloadRequest struct {
 	HPID string `json:"hp_id"`
 }
 ```
 
-UnloadHPRequest 是热补丁卸载接口需要的参数类型。HPID 是由加载接口返回的值。
+UnloadRequest 是热补丁卸载接口需要的参数类型。HPID 是由加载接口返回的值。
 
 ```go
-type HPResponse struct {
+type LoadResponse struct {
 	HPID  string `json:"hp_id"`
 	Error string `json:"error"`
 }
 ```
 
-http或者rpc接口的返回类型。HPID 是在热补丁加载接口中返回的热补丁ID，在卸载接口中无意义。Error 是加载或者卸载的错误信息。
+http或者rpc加载热补丁接口的返回类型。HPID 是在热补丁加载接口中返回的热补丁ID，Error 是加载错误信息。
 
-3. HOOK
+```go
+type UnloadResponse struct {
+	Error string `json:"error"`
+}
+```
+
+http或者rpc卸载热补丁接口的返回类型，Error 是卸载错误信息。
+
+```go
+type InfoRequest struct{}
+```
+
+热补丁信息查询接口参数类型，主要为rpc提供参数类型，无实际意义。
+
+```go
+type InfoResponse struct {
+	Info []HPInfo `json:"info"`
+}
+```
+
+热补丁信息查询接口返回类型，Info 为热补丁信息切片。
+
+```go
+type HPInfo struct {
+	HPID   string `json:"hp_id"`
+	Config Config `json:"config"`
+}
+```
+
+热补丁信息。
+
+1. HOOK
 
 hotgo 可以在加载与卸载热补丁前后增加回调函数，函数名称为：
 
@@ -223,6 +257,18 @@ curl -d '{
 ```
 
 观察程序行为，已经发生改变。
+
+然后使用 curl 通过 http 接口查看当前加载的热补丁。
+
+```bash
+curl http://127.0.0.1:8080/hp/v1/info
+```
+
+返回结果如下：
+
+```json
+[{"hp_id":"adc68ba7bb59e583a7ccd52d6d99a4c3686075dde3649ae323994bf394eb89c6","config":{"hp_file":"./hp.so","replace_config":{"NewFunc1":"main.func1"},"ref_config":{"Func2Ref":"main.func2","Global":"main.globalValue"}}}]
+```
 
 然后使用 curl 通过 http 接口卸载热补丁。
 

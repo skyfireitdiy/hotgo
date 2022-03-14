@@ -69,7 +69,11 @@ curl -d '{
   
   This API is the same as HPHttpServer, and only returns one Server. You need to monitor and provide services by yourself.
 
-2. Hotgo provides the following exposed structures
+- func GetHPInfo() []HPInfo
+  
+  Gets the hot patch information that is currently loaded.
+
+1. Hotgo provides the following exposed structures
 
 ```go
 type Config struct {
@@ -97,24 +101,58 @@ type LoadRequest Config
 LoadRequest is an alias for the Config structure and is used for the parameters of the http or rpc interface.
 
 ```go
-type UnloadHPRequest struct {
+type UnloadRequest struct {
 	HPID string `json:"hp_id"`
 }
 ```
 
-UnloadHPRequest is the type of parameter required by the hot patch uninstall interface. 
+UnloadRequest is the type of parameter required by the hot patch uninstall interface. 
 HPID is the value returned by the load interface.
 
 ```go
-type HPResponse struct {
+type LoadResponse struct {
 	HPID  string `json:"hp_id"`
 	Error string `json:"error"`
 }
 ```
 
-The return type of the http or rpc interface. 
-HPID is a hot patch ID returned in the hot patch loading interface, which makes no sense in the unloading interface. 
-Error is the error message for loading or unloading.
+Return type of the interface function for loading hot patches over HTTP or RPC. 
+HPID is the HOT patch ID returned by the hot patch loading interface. 
+Error is loading Error information.
+
+```go
+type UnloadResponse struct {
+	Error string `json:"error"`
+}
+```
+
+Indicates the return type of the HTTP or RPC interface for unloading hot patches. 
+Error indicates an uninstalling Error message.
+
+```go
+type InfoRequest struct{}
+```
+
+Parameter type of the interface for querying hot patch information. 
+The parameter type is mainly provided for RPC and is meaningless.
+
+```go
+type InfoResponse struct {
+	Info []HPInfo `json:"info"`
+}
+```
+
+Hot patch information Indicates the return type of the interface for querying hot patch information. 
+Info indicates the hot patch information slice.
+
+```go
+type HPInfo struct {
+	HPID   string `json:"hp_id"`
+	Config Config `json:"config"`
+}
+```
+
+Hot patch information.
 
 3. HOOK
 
@@ -236,6 +274,18 @@ The API returns the ID of the hot patch, as follows:
 ```
 
 Observe the behavior of the program, which has changed. 
+
+Then use curl to view the hot patch that is currently loaded through the HTTP interface.
+
+```bash
+curl http://127.0.0.1:8080/hp/v1/info
+```
+
+The result is as follows:
+
+```json
+[{"hp_id":"adc68ba7bb59e583a7ccd52d6d99a4c3686075dde3649ae323994bf394eb89c6","config":{"hp_file":"./hp.so","replace_config":{"NewFunc1":"main.func1"},"ref_config":{"Func2Ref":"main.func2","Global":"main.globalValue"}}}]
+```
 
 Then use curl to unload the hot patch through the http interface.
 
