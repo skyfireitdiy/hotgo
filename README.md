@@ -24,7 +24,7 @@ rpcserver.HandleHTTP("/hp", "/hpdebug")
 http.ListenAndServe(":8080", rpcserver)
 ```
 
-In order to prevent the compiler from optimizing the symbols, it is recommended to add the parameter `- gcflags= "- N-l"` when compiling.
+In order to prevent the compiler from optimizing the symbols, it is recommended to add the parameter `-gcflags= "-N -l"` when compiling.
 
 2. Make hot patch file.
 
