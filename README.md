@@ -28,7 +28,7 @@ In order to prevent the compiler from optimizing the symbols, it is recommended 
 
 2. Make hot patch file.
 
-Hot patch files are actually so files supported by go plugin, which can be compiled using the command parameter `--buildmode= plugin`.
+Hot patch files are actually so files supported by go plugin, which can be compiled using the command parameter `--buildmode=plugin`.
 
 3. Use http requests or rpc calls to load hot patches.
 
